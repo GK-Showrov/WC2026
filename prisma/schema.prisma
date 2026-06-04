@@ -1,0 +1,389 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// AUTH MODELS (NextAuth v5 required)
+// ============================================================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  username      String    @unique
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  role          Role      @default(USER)
+  country       String?
+  bio           String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts          Account[]
+  sessions          Session[]
+  wallet            Wallet?
+  predictions       Prediction[]
+  bets              Bet[]
+  leaguesOwned      League[]
+  leagueMemberships LeagueMember[]
+  achievements      UserAchievement[]
+  sentInvites       LeagueInvite[]    @relation("InviteSender")
+  receivedInvites   LeagueInvite[]    @relation("InviteReceiver")
+
+  @@index([email])
+  @@index([username])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expires   DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
+// ============================================================
+// WORLD CUP MODELS
+// ============================================================
+
+model Team {
+  id           String @id @default(cuid())
+  name         String @unique
+  code         String @unique
+  flag         String
+  group        String
+  continent    String
+  ranking      Int    @default(0)
+  strength     Float  @default(5.0)
+
+  homeFixtures    Fixture[] @relation("HomeTeam")
+  awayFixtures    Fixture[] @relation("AwayTeam")
+  betsAsWinner    Bet[]     @relation("BetWinner")
+  createdAt       DateTime  @default(now())
+
+  @@index([group])
+}
+
+model Fixture {
+  id          String        @id @default(cuid())
+  homeTeamId  String
+  awayTeamId  String
+  matchDate   DateTime
+  stadium     String
+  city        String
+  group       String?
+  stage       TournamentStage @default(GROUP_STAGE)
+  status      MatchStatus   @default(SCHEDULED)
+  homeScore   Int?
+  awayScore   Int?
+  matchEvents Json?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  homeTeam    Team          @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam    Team          @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  predictions Prediction[]
+  bets        Bet[]
+
+  @@index([status])
+  @@index([matchDate])
+  @@index([stage])
+  @@index([group])
+}
+
+// ============================================================
+// PREDICTION MODELS
+// ============================================================
+
+model Prediction {
+  id              String           @id @default(cuid())
+  userId          String
+  fixtureId       String
+  predictedHome   Int
+  predictedAway   Int
+  winner          PredictionWinner
+  points          Int              @default(0)
+  pointsAwarded   Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fixture Fixture @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fixtureId])
+  @@index([userId])
+  @@index([fixtureId])
+}
+
+// ============================================================
+// WALLET & BETTING MODELS
+// ============================================================
+
+model Wallet {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  balance       Float    @default(1000.0)
+  totalWinnings Float    @default(0.0)
+  totalLosses   Float    @default(0.0)
+  totalBets     Int      @default(0)
+  wonBets       Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([userId])
+}
+
+model Transaction {
+  id          String          @id @default(cuid())
+  walletId    String
+  userId      String
+  type        TransactionType
+  amount      Float
+  balance     Float
+  description String
+  betId       String?
+  createdAt   DateTime        @default(now())
+
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Bet {
+  id               String    @id @default(cuid())
+  userId           String
+  fixtureId        String
+  betType          BetType
+  amount           Float
+  odds             Float
+  potentialWinning Float
+  predictedHome    Int?
+  predictedAway    Int?
+  winnerTeamId     String?
+  status           BetStatus @default(PENDING)
+  settledAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fixture     Fixture @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  winnerTeam  Team?   @relation("BetWinner", fields: [winnerTeamId], references: [id])
+
+  @@index([userId])
+  @@index([fixtureId])
+  @@index([status])
+}
+
+// ============================================================
+// LEAGUE MODELS
+// ============================================================
+
+model League {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  code        String   @unique
+  ownerId     String
+  isPublic    Boolean  @default(false)
+  maxMembers  Int      @default(50)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner   User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members LeagueMember[]
+  invites LeagueInvite[]
+
+  @@index([code])
+  @@index([ownerId])
+}
+
+model LeagueMember {
+  id       String   @id @default(cuid())
+  leagueId String
+  userId   String
+  joinedAt DateTime @default(now())
+
+  league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([leagueId, userId])
+  @@index([leagueId])
+  @@index([userId])
+}
+
+model LeagueInvite {
+  id         String       @id @default(cuid())
+  leagueId   String
+  senderId   String
+  receiverId String
+  status     InviteStatus @default(PENDING)
+  createdAt  DateTime     @default(now())
+  expiresAt  DateTime
+
+  league   League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  sender   User   @relation("InviteSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User   @relation("InviteReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([leagueId, receiverId])
+  @@index([leagueId])
+  @@index([receiverId])
+}
+
+// ============================================================
+// ACHIEVEMENT MODELS
+// ============================================================
+
+model Achievement {
+  id          String          @id @default(cuid())
+  name        String          @unique
+  description String
+  badge       String
+  category    AchievementCategory
+  requirement Int
+  points      Int             @default(0)
+  createdAt   DateTime        @default(now())
+
+  userAchievements UserAchievement[]
+}
+
+model UserAchievement {
+  id            String   @id @default(cuid())
+  userId        String
+  achievementId String
+  unlockedAt    DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum TournamentStage {
+  GROUP_STAGE
+  ROUND_OF_32
+  ROUND_OF_16
+  QUARTER_FINAL
+  SEMI_FINAL
+  THIRD_PLACE
+  FINAL
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+  POSTPONED
+  CANCELLED
+}
+
+enum PredictionWinner {
+  HOME
+  AWAY
+  DRAW
+}
+
+enum BetType {
+  MATCH_WINNER
+  DRAW
+  EXACT_SCORE
+  TOURNAMENT_WINNER
+  GROUP_WINNER
+  GOLDEN_BOOT
+}
+
+enum BetStatus {
+  PENDING
+  WON
+  LOST
+  VOID
+  CASHOUT
+}
+
+enum TransactionType {
+  INITIAL_DEPOSIT
+  BET_PLACED
+  BET_WON
+  BET_LOST
+  BET_VOID
+  ADMIN_ADJUSTMENT
+  ACHIEVEMENT_BONUS
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum AchievementCategory {
+  PREDICTIONS
+  BETTING
+  SOCIAL
+  MILESTONES
+}
